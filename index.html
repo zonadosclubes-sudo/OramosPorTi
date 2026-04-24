@@ -216,7 +216,8 @@
     // ⚠️ IMPORTANTE: Reemplaza estos valores con los de tu proyecto Supabase
     // ⚙️ CONFIGURACIÓN & ESTADO
     const SUPABASE_URL = 'https://narierqrpsnmzshlmqjp.supabase.co';
-    const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im5hcmllcnFycHNubXpzaGxtcWpwIiwicm9sZSI6ImFub24iLCJpYXQiOjE3MTY5MjQ1NjksImV4cCI6MTczMjQ3NjU2OX0.Ds0TQDH8JbvOMHUqcgLaTA_QKjVkYhf';
+    // Clave anon/public JWT (Token actualizado para conexión a base de datos)
+    const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im5hcmllcnFycHNubXpzaGxtcWpwIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzcwMzk5NjAsImV4cCI6MjA5MjYxNTk2MH0.GdyEK-EHc9dbjWiJJxmnhYi2y_ds-u7-RGIOBTFD6cM';
     
     // Inicializamos el cliente con un nombre distinto al de la librería global
     const supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
@@ -241,38 +242,63 @@
       isRegister: false
     };
 
-    // 🔑 CREAR ADMIN MAESTRO SI NO EXISTE (Se ejecuta una sola vez al cargar la app)
-    // Esta lógica ahora intentará crear el admin en Supabase si no existe.
-    // Es importante que esta parte se ejecute ANTES de cualquier intento de login
-    // si quieres que el admin esté disponible desde el primer momento.
-    createMasterAdminIfNotExist();
-
     const escapeHtml = t => { const d = document.createElement('div'); d.textContent = t; return d.innerHTML; };
     const showMsg = (msg, type = 'error') => {
       const box = document.getElementById('message-box');
       box.innerHTML = `<div class="alert alert-${type}">${msg}</div>`;
-      setTimeout(() => box.innerHTML = '', 4000);
+      setTimeout(() => { if(box.innerHTML.includes(msg)) box.innerHTML = ''; }, 4000);
     };
 
     async function createMasterAdminIfNotExist() {
-      const { data: adminUser, error: userError } = await supabaseClient
-        .from('users')
-        .select('id')
-        .eq('username', 'ministrylion@gmail.com')
-        .single();
+      try {
+        const { data: adminUser, error: checkError } = await supabaseClient
+          .from('users')
+          .select('id')
+          .eq('username', 'ministrylion@gmail.com')
+          .maybeSingle();
 
-      if (userError && userError.code === 'PGRST116') { // No rows found
-        await supabaseClient.from('churches').upsert({ id: 1, name: 'Soporte Global', slug: 'admin' }, { onConflict: 'id' });
-        await supabaseClient.from('users').insert({ church_id: 1, username: 'ministrylion@gmail.com', password: 'admin', role: 'superadmin' });
+        if (checkError) {
+          console.error("❌ Error de Supabase:", checkError);
+          
+          if (checkError.status === 401 || checkError.message.includes("API key")) {
+            showMsg("🔑 Error 401: La clave de Supabase es incorrecta o expiró. Usa la clave 'anon' (eyJ...).", "error");
+          } else if (checkError.code === '42P01') {
+            showMsg("📋 Error: Las tablas no existen. Ejecuta el script SQL en Supabase.", "error");
+          } else if (checkError.code === '42501' || checkError.message.includes("row-level security")) {
+            showMsg("🛡️ Error de Seguridad (RLS): No tienes permiso para leer la tabla 'users'. Configura las políticas en Supabase.", "error");
+          } else {
+            showMsg(" Error de conexión: " + checkError.message, "error");
+          }
+          return;
+        }
+
+        if (!adminUser) {
+          const { error: cErr } = await supabaseClient.from('churches').upsert({ id: 1, name: 'Soporte Global', slug: 'admin' }, { onConflict: 'id' });
+          if (cErr) {
+            console.error("❌ Error al crear iglesia admin (Verifica RLS):", cErr.message);
+            if (cErr.message.includes("row-level security")) showMsg("Error RLS: Configura la política de INSERT en 'churches'.", "error");
+          }
+          
+          const { error: uErr } = await supabaseClient.from('users').insert({ church_id: 1, username: 'ministrylion@gmail.com', password: 'admin', role: 'superadmin' });
+          if (uErr) {
+            console.error("❌ Error al crear usuario admin (Verifica RLS):", uErr.message);
+            if (uErr.message.includes("row-level security")) showMsg("Error RLS: Configura la política de INSERT en 'users'.", "error");
+          }
+          
+          if (!cErr && !uErr) console.log("✅ Admin maestro verificado/creado");
+        }
+      } catch (e) { console.error("Error en verificación inicial:", e); }
+    }
+
+    // 🚀 INICIALIZACIÓN UNIFICADA
+    (async () => {
+      await createMasterAdminIfNotExist();
+      if (IS_PRESENTING) {
+        initPresentation();
+      } else {
+        await initMainApp();
       }
-    }
-
-    // 🚀 INICIALIZACIÓN SEGÚN MODO
-    if (IS_PRESENTING) {
-      initPresentation();
-    } else {
-      initMainApp();
-    }
+    })();
 
     // 📺 LÓGICA PANTALLA COMPARTIDA
     function initPresentation() {
@@ -355,12 +381,12 @@
           state.churchName = church.name;
           state.churchSlug = church.slug;
           state.role = 'guest';
-          updateDashboard();
+          await updateDashboard();
         } else {
           showMsg('Iglesia no encontrada');
           showAuth('login');
         }
-      } else if (state.token) updateDashboard();
+      } else if (state.token) await updateDashboard();
       else showAuth('login');
     }
 
@@ -410,10 +436,14 @@
           .from('users')
           .select('*')
           .eq('username', username)
-          .eq('password', password) // ⚠️ En producción, las contraseñas deben estar hasheadas
-          .single();
+          .eq('password', password) // Validando contra la contraseña 'admin'
+          .maybeSingle();
 
-        if (loginError || !user) throw new Error('Credenciales inválidas');
+        if (loginError) {
+          console.error("Error técnico Supabase:", loginError);
+          throw new Error('Error de conexión: ' + (loginError.message || 'Verifique su configuración de Supabase'));
+        }
+        if (!user) throw new Error('Usuario o contraseña incorrectos');
 
         const { data: church, error: churchError } = await supabaseClient
           .from('churches')
@@ -424,19 +454,19 @@
         if (churchError || !church) throw new Error('Iglesia asociada no encontrada.');
         
         state = { 
-          token: `tok_${user.id}`, userId: user.id, churchId: user.churchId, 
+          token: `tok_${user.id}`, userId: user.id, churchId: user.church_id, 
           churchName: church.name, churchSlug: church.slug, role: user.role 
         };
         localStorage.setItem('token', state.token); localStorage.setItem('userId', state.userId);
         localStorage.setItem('churchId', state.churchId); localStorage.setItem('churchName', state.churchName); 
         localStorage.setItem('churchSlug', state.churchSlug); localStorage.setItem('userRole', user.role || '');
         
-        updateDashboard();
+        await updateDashboard();
       } catch (err) { showMsg(err.message); }
       finally { btn.disabled = false; btn.textContent = state.isRegister ? 'Crear Cuenta' : 'Entrar'; }
     });
 
-    function updateDashboard() {
+    async function updateDashboard() {
       const isGuest = !!PUBLIC_SLUG;
       hideAll();
       document.getElementById('dashboard-section').classList.remove('hidden');
@@ -502,7 +532,12 @@
             .insert({ church_id: state.churchId, name: body.name, content: body.content })
             .select()
             .single();
-          if (error) throw new Error('Error al enviar pedido: ' + error.message);
+          if (error) {
+            if (error.code === '42501' || error.message.includes("row-level security")) {
+              throw new Error('Error al enviar pedido: No tienes permiso. Configura la política RLS de INSERT en "prayer_requests".');
+            }
+            throw new Error('Error al enviar pedido: ' + error.message);
+          }
           return data;
         } else if (!opts.method) { // GET requests
           let query = supabaseClient.from('prayer_requests').select('*, churches(name)');
@@ -551,7 +586,7 @@
     async function loadRequests(churchId = null) {
       const list = document.getElementById('requests-list');
       try {
-        const reqs = await apiCall('/requests', { churchId: churchId });
+        const reqs = await apiCall('/requests', { churchId });
         const activeShare = JSON.parse(localStorage.getItem('active_prayer_share') || 'null');
         if (!reqs.length) {
           list.innerHTML = '<p class="empty-state">No hay pedidos aún.</p>';
