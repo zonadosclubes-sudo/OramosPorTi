@@ -1,0 +1,642 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Pedidos de Oración</title>
+  <!-- Librería de Supabase -->
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <style>
+    :root {
+      --primary: #2563eb; --primary-hover: #1d4ed8;
+      --success: #16a34a; --danger: #ef4444; --purple: #8b5cf6;
+      --bg: #f8fafc; --card: #ffffff; --text: #0f172a; --muted: #64748b;
+      --border: #e2e8f0; --radius: 12px;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: system-ui, -apple-system, sans-serif; background: var(--bg); color: var(--text); line-height: 1.5; }
+    header { background: linear-gradient(135deg, #1e3a8a, #3b82f6); color: white; padding: 1.5rem 1rem; text-align: center; }
+    header h1 { font-size: 1.8rem; margin-bottom: 0.3rem; }
+    header p { opacity: 0.9; font-size: 0.95rem; }
+    nav { display: flex; gap: 0.5rem; justify-content: center; margin-top: 1rem; flex-wrap: wrap; }
+    nav button { background: rgba(255,255,255,0.2); border: 1px solid rgba(255,255,255,0.4); color: white; padding: 0.5rem 1rem; border-radius: 6px; cursor: pointer; font-weight: 500; transition: 0.2s; }
+    nav button:hover { background: rgba(255,255,255,0.35); }
+    nav .btn-logout { background: var(--danger); border: none; }
+    
+    main { max-width: 800px; margin: 2rem auto; padding: 0 1rem; }
+    .hidden { display: none !important; }
+    .card { background: var(--card); padding: 1.5rem; border-radius: var(--radius); box-shadow: 0 4px 12px rgba(0,0,0,0.06); margin-bottom: 1.5rem; }
+    h2 { margin-bottom: 1rem; color: #1e293b; font-size: 1.4rem; }
+    .form-group { margin-bottom: 1rem; }
+    label { display: block; margin-bottom: 0.4rem; font-weight: 500; color: #334155; }
+    input, textarea { width: 100%; padding: 0.8rem; border: 1px solid var(--border); border-radius: 8px; font-size: 1rem; transition: 0.2s; background: #f8fafc; }
+    input:focus, textarea:focus { outline: none; border-color: var(--primary); box-shadow: 0 0 0 3px rgba(37,99,235,0.15); background: white; }
+    textarea { min-height: 110px; resize: vertical; }
+    .btn-primary { width: 100%; background: var(--primary); color: white; border: none; padding: 0.85rem; border-radius: 8px; font-weight: 600; cursor: pointer; transition: 0.2s; margin-top: 0.5rem; }
+    .btn-primary:hover { background: var(--primary-hover); }
+    .btn-primary:disabled { opacity: 0.7; cursor: not-allowed; }
+    .toggle { color: var(--primary); cursor: pointer; text-decoration: underline; font-weight: 500; }
+    .alert { padding: 0.8rem; border-radius: 8px; margin-bottom: 1rem; text-align: center; }
+    .alert-success { background: #dcfce7; color: #166534; border: 1px solid #bbf7d0; }
+    .alert-error { background: #fee2e2; color: #991b1b; border: 1px solid #fecaca; }
+    .link-box { display: flex; gap: 0.5rem; margin-top: 0.5rem; }
+    .link-box input { flex: 1; background: #f1f5f9; color: var(--muted); }
+    
+    /* ESTILOS PANTALLA COMPARTIDA */
+    .presentation-mode {
+      background: radial-gradient(circle at 30% 30%, #1e3a8a 0%, #0f172a 100%);
+      color: #fff; min-height: 100vh; display: flex; flex-direction: column;
+      align-items: center; justify-content: center; padding: 2rem;
+      position: relative; overflow: hidden;
+    }
+    .presentation-mode::before {
+      content: ''; position: absolute; top: -50%; left: -50%; width: 200%; height: 200%;
+      background: radial-gradient(circle, rgba(255,255,255,0.04) 1px, transparent 1px);
+      background-size: 30px 30px; animation: rotate-bg 120s linear infinite; pointer-events: none;
+    }
+    .pres-container { max-width: 900px; width: 100%; text-align: center; position: relative; z-index: 10; }
+    .pres-card {
+      background: rgba(255,255,255,0.06); backdrop-filter: blur(16px);
+      border: 1px solid rgba(255,255,255,0.15); border-radius: 28px;
+      padding: 3.5rem 2.5rem; box-shadow: 0 25px 60px rgba(0,0,0,0.5);
+      margin-top: 1.5rem; opacity: 0; transform: translateY(30px) scale(0.95);
+      transition: all 0.6s cubic-bezier(0.34, 1.56, 0.64, 1);
+    }
+    .pres-card.active { opacity: 1; transform: translateY(0) scale(1); }
+    .pres-card.hidden-pres { opacity: 0 !important; transform: scale(0.95) !important; }
+    .pres-icon { font-size: 4rem; margin-bottom: 1rem; animation: pulse 3s infinite ease-in-out; }
+    .pres-card h2 { font-size: 2.2rem; margin-bottom: 1.5rem; color: #fbbf24; text-shadow: 0 4px 12px rgba(0,0,0,0.4); }
+    .pres-card p { font-size: 1.9rem; line-height: 1.7; margin-bottom: 2rem; color: #e2e8f0; white-space: pre-wrap; }
+    .pres-author { font-size: 1.4rem; color: #94a3b8; font-style: italic; }
+    .pres-controls {
+      position: fixed; bottom: 30px; left: 50%; transform: translateX(-50%);
+      background: rgba(0,0,0,0.45); padding: 10px 20px; border-radius: 40px;
+      display: flex; gap: 12px; opacity: 0.2; transition: opacity 0.4s;
+      backdrop-filter: blur(8px); border: 1px solid rgba(255,255,255,0.1); z-index: 20;
+    }
+    .pres-controls:hover { opacity: 1; }
+    .pres-btn { background: var(--danger); color: white; border: none; padding: 8px 18px; border-radius: 20px; cursor: pointer; font-weight: 500; font-size: 0.9rem; }
+    .pres-btn:hover { background: #dc2626; }
+    .pres-btn.ghost { background: transparent; border: 1px solid rgba(255,255,255,0.3); color: #cbd5e1; }
+    .pres-btn.ghost:hover { background: rgba(255,255,255,0.1); }
+    @keyframes rotate-bg { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+    @keyframes pulse { 0%, 100% { transform: scale(1); } 50% { transform: scale(1.1); } }
+    @keyframes fadeIn { from { opacity: 0; transform: translateY(-5px); } to { opacity: 1; transform: translateY(0); } }
+
+    .request-card { background: #f1f5f9; border-left: 4px solid var(--primary); padding: 1rem; margin-bottom: 0.8rem; border-radius: 0 8px 8px 0; position: relative; }
+    .request-card h4 { margin-bottom: 0.3rem; }
+    .request-card p { color: #334155; white-space: pre-wrap; }
+    .meta { font-size: 0.85rem; color: var(--muted); margin-top: 0.6rem; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 0.5rem; }
+    .btn-share { background: var(--purple); color: white; border: none; padding: 4px 10px; border-radius: 6px; cursor: pointer; font-size: 0.8rem; font-weight: 500; transition: 0.2s; }
+    .btn-unshare { background: var(--muted); color: white; border: none; padding: 4px 10px; border-radius: 6px; cursor: pointer; font-size: 0.8rem; }
+    .btn-share:hover { background: #7c3aed; }
+    .empty-state { text-align: center; color: var(--muted); padding: 2rem; font-style: italic; }
+    
+    /* GESTIÓN DE USUARIOS */
+    .user-table { width: 100%; border-collapse: collapse; margin-top: 1rem; font-size: 0.9rem; }
+    .user-table th, .user-table td { text-align: left; padding: 0.8rem; border-bottom: 1px solid var(--border); }
+    .btn-action { padding: 4px 8px; border-radius: 4px; border: none; cursor: pointer; font-size: 0.75rem; margin-right: 4px; }
+    .btn-edit { background: var(--primary); color: white; }
+    .btn-delete { background: var(--danger); color: white; }
+
+    @media (max-width: 768px) {
+      header h1 { font-size: 1.5rem; }
+      main { margin: 1rem auto; }
+      .pres-card { padding: 2rem 1.5rem; }
+      .pres-card h2 { font-size: 1.6rem; }
+      .pres-card p { font-size: 1.2rem; }
+      .pres-controls { width: 90%; justify-content: center; }
+    }
+  </style>
+</head>
+<body>
+  <!-- 📺 VISTA PANTALLA COMPARTIDA -->
+  <div id="presentation-view" class="hidden"></div>
+  
+  <!-- 🏛️ APP PRINCIPAL -->
+  <div id="app-container">
+    <header>
+      <h1>🙏 Pedidos de Oración</h1>
+      <p id="header-subtitle">Comparte tu petición y estaremos orando por ti</p>
+      <nav id="nav-menu">
+        <button id="nav-login" onclick="showAuth('login')">Iniciar Sesión</button>
+        <button id="nav-logout" class="btn-logout hidden" onclick="logout()">Cerrar Sesión</button>
+      </nav>
+    </header>
+
+    <main id="app">
+      <div id="message-box"></div>
+
+      <!-- 🔐 AUTH -->
+      <section id="auth-section" class="hidden">
+        <div class="card">
+          <h2 id="auth-title">Iniciar Sesión</h2>
+          <form id="auth-form">
+            <div class="form-group hidden" id="church-group">
+              <label for="church-slug">Nombre/Slug de tu Iglesia:</label>
+              <input type="text" id="church-slug" placeholder="ej: iglesia-esperanza (sin espacios)">
+            </div>
+            <div class="form-group">
+              <label for="username">Usuario / Correo:</label>
+              <input type="text" id="username" placeholder="Ingresa tu usuario" required>
+            </div>
+            <div class="form-group">
+              <label for="password">Contraseña:</label>
+              <input type="password" id="password" placeholder="••••••••" required>
+            </div>
+            <button type="submit" class="btn-primary" id="auth-btn">Entrar</button>
+          </form>
+          <p style="margin-top: 0.8rem; text-align: center; color: var(--muted);">
+            <span id="auth-toggle-text">¿No tienes cuenta?</span> 
+            <span class="toggle" onclick="toggleAuthMode()">Regístrate</span>
+          </p>
+        </div>
+      </section>
+
+      <!-- 🏛️ DASHBOARD -->
+      <section id="dashboard-section" class="hidden">
+        <div class="card">
+          <h2 id="dashboard-title">🙏🕊️ Iglesia: <span id="church-display" style="color:var(--primary);"></span></h2>
+          <nav id="dashboard-nav">
+            <button onclick="showTab('form')">📝 Pedidos de Oración</button>
+            <button onclick="showTab('list')">📖 Ver Pedidos</button>
+            <button onclick="showTab('share')">🔗 Compartir Enlace</button>
+            <button id="nav-users" class="hidden" onclick="showTab('users')">👥 Usuarios</button>
+          </nav>
+        </div>
+
+        <div id="tab-form" class="card">
+          <h3>Enviar Nuevo Pedido</h3>
+          <form id="admin-form" autocomplete="off">
+            <div class="form-group">
+              <label for="admin-name">Nombre:</label>
+              <input type="text" id="admin-name" placeholder="Nombre del intercesor" required>
+            </div>
+            <div class="form-group">
+              <label for="admin-request">Pedido de oración:</label>
+              <textarea id="admin-request" placeholder="Escribe la petición..." required></textarea>
+            </div>
+            <button type="submit" class="btn-primary">Enviar Pedido</button>
+          </form>
+        </div>
+
+        <div id="tab-list" class="card hidden">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem; flex-wrap: wrap; gap: 10px;">
+            <h3>📖 Pedidos Recibidos</h3>
+            <button class="btn-share" onclick="openPresentationWindow()" style="padding: 8px 15px;">📺 Abrir Pantalla para Proyector</button>
+          </div>
+          
+          <div id="admin-filter-container" class="hidden" style="margin-bottom: 1.5rem; padding: 1rem; background: #f1f5f9; border-radius: 8px;">
+            <label for="filter-church" style="font-size: 0.9rem; color: var(--muted);">🔍 Filtrar por Iglesia:</label>
+            <select id="filter-church" onchange="loadRequests(this.value)" style="margin-top: 0.4rem; background: white;">
+            </select>
+          </div>
+
+          <div id="requests-list"><p class="empty-state">Cargando...</p></div>
+        </div>
+
+        <div id="tab-share" class="card hidden">
+          <h3>🔗 Enlace Público para tu Iglesia</h3>
+          <p style="color:var(--muted); margin-bottom:0.8rem;">Comparte este enlace con tu congregación:</p>
+          <div class="link-box">
+            <input type="text" id="share-link" readonly>
+            <button class="btn-primary" onclick="copyLink()" style="width:auto;">Copiar</button>
+          </div>
+        </div>
+
+        <div id="tab-users" class="card hidden">
+          <h3>👥 Gestión de Usuarios</h3>
+          <div id="users-list"></div>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <script>
+    // ⚠️ IMPORTANTE: Reemplaza estos valores con los de tu proyecto Supabase
+    // ⚙️ CONFIGURACIÓN & ESTADO
+    const SUPABASE_URL = 'https://narierqrpsnmzshlmqjp.supabase.co';
+    const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im5hcmllcnFycHNubXpzaGxtcWpwIiwicm9sZSI6ImFub24iLCJpYXQiOjE3MTY5MjQ1NjksImV4cCI6MTczMjQ3NjU2OX0.Ds0TQDH8JbvOMHUqcgLaTA_QKjVkYhf';
+    
+    // Inicializamos el cliente con un nombre distinto al de la librería global
+    const supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+
+    const urlParams = new URLSearchParams(window.location.search);
+    const IS_PRESENTING = urlParams.get('present') === 'true';
+    const PUBLIC_SLUG = urlParams.get('public');
+
+    // Limpiamos la lógica local antigua
+    const DB = {
+      save() { /* Ahora manejado por Supabase */ }
+    };
+
+    // Estado de la aplicación (sesión del usuario)
+    let state = {
+      token: localStorage.getItem('token'),
+      userId: localStorage.getItem('userId'),
+      churchId: localStorage.getItem('churchId'),
+      churchName: localStorage.getItem('churchName'),
+      churchSlug: localStorage.getItem('churchSlug'),
+      role: localStorage.getItem('userRole'),
+      isRegister: false
+    };
+
+    // 🔑 CREAR ADMIN MAESTRO SI NO EXISTE (Se ejecuta una sola vez al cargar la app)
+    // Esta lógica ahora intentará crear el admin en Supabase si no existe.
+    // Es importante que esta parte se ejecute ANTES de cualquier intento de login
+    // si quieres que el admin esté disponible desde el primer momento.
+    createMasterAdminIfNotExist();
+
+    const escapeHtml = t => { const d = document.createElement('div'); d.textContent = t; return d.innerHTML; };
+    const showMsg = (msg, type = 'error') => {
+      const box = document.getElementById('message-box');
+      box.innerHTML = `<div class="alert alert-${type}">${msg}</div>`;
+      setTimeout(() => box.innerHTML = '', 4000);
+    };
+
+    async function createMasterAdminIfNotExist() {
+      const { data: adminUser, error: userError } = await supabaseClient
+        .from('users')
+        .select('id')
+        .eq('username', 'ministrylion@gmail.com')
+        .single();
+
+      if (userError && userError.code === 'PGRST116') { // No rows found
+        await supabaseClient.from('churches').upsert({ id: 1, name: 'Soporte Global', slug: 'admin' }, { onConflict: 'id' });
+        await supabaseClient.from('users').insert({ church_id: 1, username: 'ministrylion@gmail.com', password: 'admin', role: 'superadmin' });
+      }
+    }
+
+    // 🚀 INICIALIZACIÓN SEGÚN MODO
+    if (IS_PRESENTING) {
+      initPresentation();
+    } else {
+      initMainApp();
+    }
+
+    // 📺 LÓGICA PANTALLA COMPARTIDA
+    function initPresentation() {
+      document.getElementById('app-container').style.display = 'none';
+      const presView = document.getElementById('presentation-view');
+      presView.classList.remove('hidden');
+      presView.className = 'presentation-mode';
+      presView.innerHTML = `
+        <div class="pres-container" id="pres-content-wrapper" style="opacity:0; transition: opacity 0.5s;">
+          <div class="pres-icon">🕊️</div>
+          <h1 style="font-size:1.2rem; opacity:0.7; letter-spacing:2px; margin-bottom:0.5rem;">PANTALLA DE ORACIÓN</h1>
+          <div class="pres-card" id="prayer-card">
+            <h2 id="pres-title"></h2>
+            <p id="pres-content"></p>
+            <div class="pres-author" id="pres-author"></div>
+          </div>
+        </div>
+        <div class="pres-controls" id="pres-controls" style="display:none;">
+          <button class="pres-btn ghost" onclick="toggleVisibility()">👁️ Ocultar/Mostrar</button>
+          <button class="pres-btn" onclick="clearPresentation()">🗑️ Limpiar Pantalla</button>
+        </div>
+      `;
+      updatePresentationUI();
+      // Escuchar cambios desde otras pestañas
+      window.addEventListener('storage', (e) => {
+        if (e.key === 'active_prayer_share') updatePresentationUI();
+      });
+    }
+
+    function updatePresentationUI() {
+      const card = document.getElementById('prayer-card');
+      if (!card) return; // Salir si el elemento no existe en esta ventana
+
+      const data = JSON.parse(localStorage.getItem('active_prayer_share') || 'null');
+      const controls = document.getElementById('pres-controls');
+      const wrapper = document.getElementById('pres-content-wrapper');
+      const title = document.getElementById('pres-title');
+      const content = document.getElementById('pres-content');
+      const author = document.getElementById('pres-author');
+
+      if (!data) {
+        card.classList.remove('active');
+        controls.style.display = 'none';
+        wrapper.style.opacity = '0';
+        content.textContent = '';
+        author.textContent = '';
+        return;
+      }
+
+      wrapper.style.opacity = '1';
+      title.textContent = '🙏 Pedido de Oración';
+      content.textContent = data.content;
+      author.textContent = `— ${data.name}`;
+      card.classList.add('active');
+      controls.style.display = 'flex';
+    }
+
+    function toggleVisibility() {
+      document.getElementById('prayer-card').classList.toggle('hidden-pres');
+    }
+
+    function clearPresentation() {
+      localStorage.removeItem('active_prayer_share');
+      if (IS_PRESENTING) updatePresentationUI();
+    }
+
+    // 🏛️ LÓGICA APP PRINCIPAL
+    async function initMainApp() {
+      if (PUBLIC_SLUG) {
+        // Buscamos la iglesia en la base de datos real
+        const { data: church, error } = await supabaseClient
+          .from('churches')
+          .select('*')
+          .eq('slug', PUBLIC_SLUG)
+          .single();
+
+        if (church && !error) {
+          // Configurar estado temporal para el invitado
+          state.churchId = church.id;
+          state.churchName = church.name;
+          state.churchSlug = church.slug;
+          state.role = 'guest';
+          updateDashboard();
+        } else {
+          showMsg('Iglesia no encontrada');
+          showAuth('login');
+        }
+      } else if (state.token) updateDashboard();
+      else showAuth('login');
+    }
+
+    function showAuth(mode) {
+      state.isRegister = mode === 'register';
+      hideAll();
+      document.getElementById('auth-section').classList.remove('hidden');
+      document.getElementById('auth-title').textContent = state.isRegister ? 'Registrar Iglesia / Admin' : 'Iniciar Sesión';
+      document.getElementById('auth-btn').textContent = state.isRegister ? 'Crear Cuenta' : 'Entrar';
+      document.getElementById('church-group').classList.toggle('hidden', !state.isRegister);
+      document.getElementById('auth-toggle-text').textContent = state.isRegister ? '¿Ya tienes cuenta?' : '¿No tienes cuenta?';
+      document.getElementById('nav-login').classList.remove('hidden');
+      document.getElementById('nav-logout').classList.add('hidden');
+      document.getElementById('header-subtitle').textContent = 'Comparte tu petición y estaremos orando por ti';
+    }
+
+    function toggleAuthMode() { showAuth(state.isRegister ? 'login' : 'register'); }
+    function hideAll() { document.querySelectorAll('#app > section').forEach(s => s.classList.add('hidden')); }
+
+    document.getElementById('auth-form').addEventListener('submit', async e => {
+      e.preventDefault();
+      const btn = document.getElementById('auth-btn');
+      btn.disabled = true; btn.textContent = 'Cargando...';
+      try {
+        const username = document.getElementById('username').value.trim();
+        const password = document.getElementById('password').value.trim();
+
+        if (state.isRegister) {
+          const slug = document.getElementById('church-slug').value.trim().toLowerCase().replace(/\s+/g, '-');
+          if (!slug) throw new Error('Ingresa un slug para tu iglesia');
+
+          const { data: existingChurch, error: churchCheckError } = await supabaseClient.from('churches').select('id').eq('slug', slug).single();
+          if (existingChurch) throw new Error('Esa iglesia ya existe.');
+
+          const { data: newChurchData, error: churchError } = await supabaseClient.from('churches').insert({ name: slug.split('-').map(w=>w.charAt(0).toUpperCase()+w.slice(1)).join(' '), slug }).select().single();
+          if (churchError) throw new Error('Error al crear la iglesia: ' + churchError.message);
+
+          const { data: newUserData, error: userError } = await supabaseClient.from('users').insert({ church_id: newChurchData.id, username, password, role: 'user' }).select().single();
+          if (userError) throw new Error('Error al crear el usuario: ' + userError.message);
+
+          showMsg('✅ Iglesia y admin creados. Inicia sesión.', 'success');
+          showAuth('login');
+          return;
+        }
+
+        const { data: user, error: loginError } = await supabaseClient
+          .from('users')
+          .select('*')
+          .eq('username', username)
+          .eq('password', password) // ⚠️ En producción, las contraseñas deben estar hasheadas
+          .single();
+
+        if (loginError || !user) throw new Error('Credenciales inválidas');
+
+        const { data: church, error: churchError } = await supabaseClient
+          .from('churches')
+          .select('*')
+          .eq('id', user.church_id)
+          .single();
+
+        if (churchError || !church) throw new Error('Iglesia asociada no encontrada.');
+        
+        state = { 
+          token: `tok_${user.id}`, userId: user.id, churchId: user.churchId, 
+          churchName: church.name, churchSlug: church.slug, role: user.role 
+        };
+        localStorage.setItem('token', state.token); localStorage.setItem('userId', state.userId);
+        localStorage.setItem('churchId', state.churchId); localStorage.setItem('churchName', state.churchName); 
+        localStorage.setItem('churchSlug', state.churchSlug); localStorage.setItem('userRole', user.role || '');
+        
+        updateDashboard();
+      } catch (err) { showMsg(err.message); }
+      finally { btn.disabled = false; btn.textContent = state.isRegister ? 'Crear Cuenta' : 'Entrar'; }
+    });
+
+    function updateDashboard() {
+      const isGuest = !!PUBLIC_SLUG;
+      hideAll();
+      document.getElementById('dashboard-section').classList.remove('hidden');
+      document.getElementById('church-display').textContent = state.churchName;
+
+      if (isGuest) {
+        // Interfaz Simplificada para Público
+        document.getElementById('nav-menu').classList.add('hidden');
+        document.getElementById('dashboard-nav').classList.add('hidden');
+        document.getElementById('dashboard-title').innerHTML = `🙏 Enviar Pedido a:<br><span style="color:var(--primary);">${state.churchName}</span>`;
+      } else {
+        // Interfaz completa para Administradores
+        document.getElementById('share-link').value = `${window.location.origin}${window.location.pathname}?public=${state.churchSlug}`;
+        document.getElementById('nav-login').classList.add('hidden');
+        document.getElementById('nav-logout').classList.remove('hidden');
+        document.getElementById('dashboard-nav').classList.remove('hidden');
+        document.getElementById('nav-users').classList.toggle('hidden', state.role !== 'superadmin');
+        
+        // Configurar filtro para Superadmin
+        const filterCont = document.getElementById('admin-filter-container');
+        if (state.role === 'superadmin') {
+          filterCont.classList.remove('hidden');
+          // Cargar iglesias para el filtro desde Supabase
+          const { data: churches, error } = await supabaseClient.from('churches').select('id, name');
+          if (error) { console.error('Error al cargar iglesias:', error.message); return; }
+          const select = document.getElementById('filter-church');
+          select.innerHTML = '<option value="">✨ Todas las Iglesias</option>' + churches.map(c => `<option value="${c.id}">${escapeHtml(c.name)}</option>`).join('');
+        } else {
+          filterCont.classList.add('hidden');
+        }
+      }
+
+      showTab('form');
+    }
+
+    function logout() {
+      localStorage.clear();
+      state = { token: null, userId: null, churchId: null, churchName: '', churchSlug: '', role: null };
+      showAuth('login');
+      showMsg('👋 Sesión cerrada', 'success');
+    }
+
+    function showTab(tab) {
+      document.getElementById('tab-form').classList.toggle('hidden', tab !== 'form');
+      document.getElementById('tab-list').classList.toggle('hidden', tab !== 'list');
+      document.getElementById('tab-share').classList.toggle('hidden', tab !== 'share');
+      document.getElementById('tab-users').classList.toggle('hidden', tab !== 'users');
+      if (tab === 'list') loadRequests();
+      if (tab === 'users') loadUsers();
+    }
+
+    // Función para realizar llamadas a Supabase
+    async function apiCall(endpoint, opts = {}) {
+      // Simular un pequeño retraso para UX
+      await new Promise(r => setTimeout(r, 250));
+
+      const body = opts.body ? JSON.parse(opts.body) : {};
+
+      if (endpoint === '/requests') {
+        if (opts.method === 'POST') {
+          const { data, error } = await supabaseClient
+            .from('prayer_requests')
+            .insert({ church_id: state.churchId, name: body.name, content: body.content })
+            .select()
+            .single();
+          if (error) throw new Error('Error al enviar pedido: ' + error.message);
+          return data;
+        } else if (!opts.method) { // GET requests
+          let query = supabaseClient.from('prayer_requests').select('*, churches(name)');
+
+          const filterId = opts.churchId || null;
+          if (state.role !== 'superadmin' || filterId) {
+            const targetId = filterId || state.churchId;
+            query = query.eq('church_id', targetId);
+          }
+          query = query.order('created_at', { ascending: false });
+
+          const { data, error } = await query;
+          if (error) throw new Error('Error al cargar pedidos: ' + error.message);
+          return data;
+        }
+      } else if (endpoint === '/users') {
+        if (opts.method === 'GET') {
+          const { data, error } = await supabaseClient.from('users').select('*, churches(name)');
+          if (error) throw new Error('Error al cargar usuarios: ' + error.message);
+          return data;
+        } else if (opts.method === 'DELETE') {
+          const { error } = await supabaseClient.from('users').delete().eq('id', opts.id);
+          if (error) throw new Error('Error al eliminar usuario: ' + error.message);
+          return { success: true };
+        } else if (opts.method === 'PUT') { // Para actualizar contraseña
+          const { error } = await supabaseClient.from('users').update({ password: opts.password }).eq('id', opts.id);
+          if (error) throw new Error('Error al actualizar contraseña: ' + error.message);
+          return { success: true };
+        }
+      }
+      throw new Error('Endpoint o método no soportado.');
+    }
+    document.getElementById('admin-form').addEventListener('submit', async e => {
+      e.preventDefault();
+      const btn = e.target.querySelector('button');
+      btn.disabled = true; btn.textContent = 'Enviando...';
+      try {
+        await apiCall('/requests', { method: 'POST', body: JSON.stringify({ name: document.getElementById('admin-name').value, content: document.getElementById('admin-request').value }) });
+        showMsg('✅ Pedido registrado', 'success');
+        e.target.reset();
+        if (!document.getElementById('tab-list').classList.contains('hidden')) loadRequests();
+      } catch(err) { showMsg(err.message); }
+      finally { btn.disabled = false; btn.textContent = 'Enviar Pedido'; }
+    });
+
+    async function loadRequests(churchId = null) {
+      const list = document.getElementById('requests-list');
+      try {
+        const reqs = await apiCall('/requests', { churchId: churchId });
+        const activeShare = JSON.parse(localStorage.getItem('active_prayer_share') || 'null');
+        if (!reqs.length) {
+          list.innerHTML = '<p class="empty-state">No hay pedidos aún.</p>';
+          return;
+        }
+        list.innerHTML = reqs.map(r => {
+          // Supabase ya nos trae el nombre de la iglesia si usamos '*, churches(name)'
+          const churchName = r.churches ? r.churches.name : 'N/A';
+          return `
+            <div class="request-card">
+              <div style="display:flex; justify-content:space-between; align-items:start;">
+                <h4>${escapeHtml(r.name)}</h4>
+                ${state.role === 'superadmin' ? `<span style="font-size:0.7rem; background:#e2e8f0; padding:2px 6px; border-radius:4px;">⛪ ${escapeHtml(churchName || 'Sistema')}</span>` : ''}
+              </div>
+              <p>${escapeHtml(r.content)}</p>
+              <div class="meta">
+                <span>📅 ${new Date(r.created_at).toLocaleDateString()}</span>
+                <div>
+                  ${activeShare && activeShare.id === r.id 
+                    ? `<button class="btn-unshare" onclick="clearPresentation(); loadRequests(${churchId ? `'${churchId}'` : 'null'});">✖️ Quitar de Pantalla</button>`
+                    : `<button class="btn-share" onclick='sharePrayer(${JSON.stringify(r).replace(/'/g, "&#39;")})'>📺 Compartir a Pantalla</button>`
+                  }
+                </div>
+              </div>
+            </div>
+          `;
+        }).join('');
+      } catch { list.innerHTML = '<p class="empty-state" style="color:var(--danger);">Error al cargar</p>'; }
+    }
+
+    // 👥 GESTIÓN DE USUARIOS (SUPERADMIN)
+    function loadUsers() {
+      const container = document.getElementById('users-list');
+      try {
+        apiCall('/users', { method: 'GET' }).then(users => {
+          if (!users || users.length === 0) {
+            container.innerHTML = '<p class="empty-state">No hay usuarios.</p>';
+            return;
+          }
+          let html = `<table class="user-table"><thead><tr><th>Usuario</th><th>Iglesia</th><th>Rol</th><th>Acciones</th></tr></thead><tbody>`;
+          users.forEach(u => {
+            const churchName = u.churches ? u.churches.name : 'N/A';
+            html += `<tr><td>${escapeHtml(u.username)}</td><td>${escapeHtml(churchName)}</td><td>${u.role === 'superadmin' ? '⭐ Admin' : 'Usuario'}</td><td><button class="btn-action btn-edit" onclick="editUser(${u.id})">✏️</button>${u.role !== 'superadmin' ? `<button class="btn-action btn-delete" onclick="deleteUser(${u.id})">🗑️</button>` : ''}</td></tr>`;
+          });
+          html += '</tbody></table>';
+          container.innerHTML = html;
+        });
+      } catch (error) {
+        container.innerHTML = `<p class="empty-state" style="color:var(--danger);">Error al cargar usuarios: ${error.message}</p>`;
+      }
+    }
+
+    function deleteUser(id) {
+      if (!confirm('¿Estás seguro de eliminar este usuario? Esta acción es irreversible.')) return;
+      apiCall('/users', { method: 'DELETE', id: id })
+        .then(() => {
+          loadUsers();
+          showMsg('Usuario eliminado', 'success');
+        })
+        .catch(err => showMsg(err.message));
+    }
+
+    function editUser(id) {
+      const newPass = prompt('Nueva contraseña para el usuario:');
+      if (!newPass) return;
+      apiCall('/users', { method: 'PUT', id: id, password: newPass })
+        .then(() => showMsg('Contraseña actualizada', 'success'))
+        .catch(err => showMsg(err.message));
+    }
+
+    function openPresentationWindow() {
+      window.open(`${window.location.pathname}?present=true`, 'PrayerPresentation', 'width=1200,height=800,noopener,noreferrer');
+    }
+
+    function sharePrayer(req) {
+      localStorage.setItem('active_prayer_share', JSON.stringify(req));
+      loadRequests();
+      showMsg('Pedido enviado a la pantalla', 'success');
+    }
+
+    function copyLink() {
+      const input = document.getElementById('share-link');
+      input.select(); document.execCommand('copy');
+      showMsg('🔗 Enlace copiado', 'success');
+    }
+  </script>
+</body>
+</html>
