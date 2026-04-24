@@ -539,6 +539,10 @@
             throw new Error('Error al enviar pedido: ' + error.message);
           }
           return data;
+        } else if (opts.method === 'DELETE') {
+          const { error } = await supabaseClient.from('prayer_requests').delete().eq('id', opts.id);
+          if (error) throw new Error('Error al eliminar pedido: ' + error.message);
+          return { success: true };
         } else if (!opts.method) { // GET requests
           let query = supabaseClient.from('prayer_requests').select('*, churches(name)');
 
@@ -609,12 +613,24 @@
                     ? `<button class="btn-unshare" onclick="clearPresentation(); loadRequests(${churchId ? `'${churchId}'` : 'null'});">✖️ Quitar de Pantalla</button>`
                     : `<button class="btn-share" onclick='sharePrayer(${JSON.stringify(r).replace(/'/g, "&#39;")})'>📺 Compartir a Pantalla</button>`
                   }
+                  <button class="btn-action btn-delete" onclick="deleteRequest(${r.id}, ${churchId ? `'${churchId}'` : 'null'})" style="padding: 5px 10px; font-size: 0.8rem; margin-left: 5px; height: 26px;">🗑️</button>
                 </div>
               </div>
             </div>
           `;
         }).join('');
       } catch { list.innerHTML = '<p class="empty-state" style="color:var(--danger);">Error al cargar</p>'; }
+    }
+
+    async function deleteRequest(id, churchIdFilter = null) {
+      if (!confirm('¿Estás seguro de eliminar este pedido?')) return;
+      try {
+        await apiCall('/requests', { method: 'DELETE', id: id });
+        showMsg('✅ Pedido eliminado', 'success');
+        loadRequests(churchIdFilter);
+        const activeShare = JSON.parse(localStorage.getItem('active_prayer_share') || 'null');
+        if (activeShare && activeShare.id === id) clearPresentation();
+      } catch (err) { showMsg(err.message); }
     }
 
     // 👥 GESTIÓN DE USUARIOS (SUPERADMIN)
