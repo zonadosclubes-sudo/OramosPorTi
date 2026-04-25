@@ -183,7 +183,10 @@
         <div id="tab-list" class="card hidden">
           <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem; flex-wrap: wrap; gap: 10px;">
             <h3>📖 Pedidos Recibidos</h3>
-            <button class="btn-share" onclick="openPresentationWindow()" style="padding: 8px 15px;">📺 Abrir Pantalla para Proyector</button>
+            <div style="display: flex; gap: 8px;">
+              <button id="btn-share-all" class="btn-share" onclick="shareAllPrayers()" style="padding: 8px 15px; background: var(--success); display: none;">📺 Compartir Todo</button>
+              <button class="btn-share" onclick="openPresentationWindow()" style="padding: 8px 15px;">📺 Abrir Pantalla</button>
+            </div>
           </div>
           
           <div id="admin-filter-container" class="hidden" style="margin-bottom: 1.5rem; padding: 1rem; background: #f1f5f9; border-radius: 8px;">
@@ -235,12 +238,15 @@
     let state = {
       token: localStorage.getItem('token'),
       userId: localStorage.getItem('userId'),
-      churchId: localStorage.getItem('churchId'),
+      churchId: localStorage.getItem('churchId') ? Number(localStorage.getItem('churchId')) : null,
       churchName: localStorage.getItem('churchName'),
       churchSlug: localStorage.getItem('churchSlug'),
       role: localStorage.getItem('userRole'),
       isRegister: false
     };
+    
+    let lastFetchedRequests = [];
+    let presentationInterval = null;
 
     const escapeHtml = t => { const d = document.createElement('div'); d.textContent = t; return d.innerHTML; };
     const showMsg = (msg, type = 'error') => {
@@ -302,6 +308,7 @@
 
     // 📺 LÓGICA PANTALLA COMPARTIDA
     function initPresentation() {
+      if (presentationInterval) clearInterval(presentationInterval);
       document.getElementById('app-container').style.display = 'none';
       const presView = document.getElementById('presentation-view');
       presView.classList.remove('hidden');
@@ -329,35 +336,57 @@
     }
 
     function updatePresentationUI() {
-      const card = document.getElementById('prayer-card');
-      if (!card) return; // Salir si el elemento no existe en esta ventana
+      if (presentationInterval) clearInterval(presentationInterval);
+      const presView = document.getElementById('presentation-view');
+      const wrapper = document.getElementById('pres-content-wrapper');
+      const controls = document.getElementById('pres-controls');
+      
+      if (!wrapper || !presView) return;
 
       const data = JSON.parse(localStorage.getItem('active_prayer_share') || 'null');
-      const controls = document.getElementById('pres-controls');
-      const wrapper = document.getElementById('pres-content-wrapper');
-      const title = document.getElementById('pres-title');
-      const content = document.getElementById('pres-content');
-      const author = document.getElementById('pres-author');
 
       if (!data) {
-        card.classList.remove('active');
-        controls.style.display = 'none';
         wrapper.style.opacity = '0';
-        content.textContent = '';
-        author.textContent = '';
+        controls.style.display = 'none';
         return;
       }
 
       wrapper.style.opacity = '1';
-      title.textContent = '🙏 Pedido de Oración';
-      content.textContent = data.content;
-      author.textContent = `— ${data.name}`;
-      card.classList.add('active');
       controls.style.display = 'flex';
+
+      if (Array.isArray(data)) {
+        presView.style.justifyContent = 'flex-start';
+        presView.style.overflowY = 'auto';
+        wrapper.innerHTML = `
+          <div class="pres-icon" style="margin-top:2rem;">🕊️</div>
+          <h1 style="font-size:1.2rem; opacity:0.7; letter-spacing:2px; margin-bottom:1.5rem;">LISTA DE PETICIONES</h1>
+          <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 1.5rem; width: 100%; max-width: 1100px; margin: 0 auto 4rem auto;">
+            ${data.map(item => `
+              <div class="pres-card active" style="margin-top:0; padding:1.5rem; text-align:left; transform:none; opacity:1;">
+                <h2 style="font-size:1.3rem; margin-bottom:0.6rem; color:#fbbf24; text-shadow:none;">🙏 ${escapeHtml(item.name)}</h2>
+                <p style="font-size:1.1rem; line-height:1.4; margin-bottom:0; color:#e2e8f0; white-space:pre-wrap;">${escapeHtml(item.content)}</p>
+              </div>
+            `).join('')}
+          </div>
+        `;
+      } else {
+        presView.style.justifyContent = 'center';
+        presView.style.overflowY = 'hidden';
+        wrapper.innerHTML = `
+          <div class="pres-icon">🕊️</div>
+          <h1 style="font-size:1.2rem; opacity:0.7; letter-spacing:2px; margin-bottom:0.5rem;">PANTALLA DE ORACIÓN</h1>
+          <div class="pres-card active" id="prayer-card">
+            <h2 id="pres-title">🙏 Pedido de Oración</h2>
+            <p id="pres-content">${escapeHtml(data.content)}</p>
+            <div class="pres-author" id="pres-author">— ${escapeHtml(data.name)}</div>
+          </div>
+        `;
+      }
     }
 
     function toggleVisibility() {
-      document.getElementById('prayer-card').classList.toggle('hidden-pres');
+      const cards = document.querySelectorAll('.pres-card');
+      cards.forEach(card => card.classList.toggle('hidden-pres'));
     }
 
     function clearPresentation() {
@@ -377,7 +406,7 @@
 
         if (church && !error) {
           // Configurar estado temporal para el invitado
-          state.churchId = church.id;
+          state.churchId = Number(church.id);
           state.churchName = church.name;
           state.churchSlug = church.slug;
           state.role = 'guest';
@@ -454,11 +483,11 @@
         if (churchError || !church) throw new Error('Iglesia asociada no encontrada.');
         
         state = { 
-          token: `tok_${user.id}`, userId: user.id, churchId: user.church_id, 
+          token: `tok_${user.id}`, userId: user.id, churchId: Number(user.church_id), 
           churchName: church.name, churchSlug: church.slug, role: user.role 
         };
         localStorage.setItem('token', state.token); localStorage.setItem('userId', state.userId);
-        localStorage.setItem('churchId', state.churchId); localStorage.setItem('churchName', state.churchName); 
+        localStorage.setItem('churchId', String(state.churchId)); localStorage.setItem('churchName', state.churchName); 
         localStorage.setItem('churchSlug', state.churchSlug); localStorage.setItem('userRole', user.role || '');
         
         await updateDashboard();
@@ -479,7 +508,9 @@
         document.getElementById('dashboard-title').innerHTML = `🙏 Enviar Pedido a:<br><span style="color:var(--primary);">${state.churchName}</span>`;
       } else {
         // Interfaz completa para Administradores
-        document.getElementById('share-link').value = `${window.location.origin}${window.location.pathname}?public=${state.churchSlug}`;
+        const baseUrl = window.location.href.split('?')[0];
+        document.getElementById('share-link').value = `${baseUrl}?public=${state.churchSlug}`;
+        
         document.getElementById('nav-login').classList.add('hidden');
         document.getElementById('nav-logout').classList.remove('hidden');
         document.getElementById('dashboard-nav').classList.remove('hidden');
@@ -523,18 +554,28 @@
       // Simular un pequeño retraso para UX
       await new Promise(r => setTimeout(r, 250));
 
-      const body = opts.body ? JSON.parse(opts.body) : {};
+      const body = typeof opts.body === 'string' ? JSON.parse(opts.body) : (opts.body || {});
 
       if (endpoint === '/requests') {
         if (opts.method === 'POST') {
+          if (!state.churchId) {
+            throw new Error('No se pudo identificar la iglesia. Intenta recargar la página.');
+          }
+          
           const { data, error } = await supabaseClient
             .from('prayer_requests')
-            .insert({ church_id: state.churchId, name: body.name, content: body.content })
+            .insert({ 
+              church_id: Number(state.churchId), 
+              name: body.name, 
+              content: body.content 
+            })
             .select()
-            .single();
+            .maybeSingle();
+
           if (error) {
+            console.error("Error de Supabase:", error);
             if (error.code === '42501' || error.message.includes("row-level security")) {
-              throw new Error('Error al enviar pedido: No tienes permiso. Configura la política RLS de INSERT en "prayer_requests".');
+              throw new Error('Error de permisos: Asegúrate de habilitar la política RLS de INSERT para el rol "anon" en la tabla "prayer_requests" dentro de Supabase.');
             }
             throw new Error('Error al enviar pedido: ' + error.message);
           }
@@ -591,7 +632,11 @@
       const list = document.getElementById('requests-list');
       try {
         const reqs = await apiCall('/requests', { churchId });
+        lastFetchedRequests = reqs;
+        
         const activeShare = JSON.parse(localStorage.getItem('active_prayer_share') || 'null');
+        document.getElementById('btn-share-all').style.display = reqs.length > 0 ? 'block' : 'none';
+
         if (!reqs.length) {
           list.innerHTML = '<p class="empty-state">No hay pedidos aún.</p>';
           return;
@@ -674,13 +719,21 @@
     }
 
     function openPresentationWindow() {
-      window.open(`${window.location.pathname}?present=true`, 'PrayerPresentation', 'width=1200,height=800,noopener,noreferrer');
+      const baseUrl = window.location.href.split('?')[0];
+      window.open(`${baseUrl}?present=true`, 'PrayerPresentation', 'width=1200,height=800');
     }
 
     function sharePrayer(req) {
       localStorage.setItem('active_prayer_share', JSON.stringify(req));
       loadRequests();
       showMsg('Pedido enviado a la pantalla', 'success');
+    }
+
+    function shareAllPrayers() {
+      if (lastFetchedRequests.length === 0) return;
+      localStorage.setItem('active_prayer_share', JSON.stringify(lastFetchedRequests));
+      loadRequests();
+      showMsg('✅ Todos los pedidos enviados a la pantalla (Modo lista)', 'success');
     }
 
     function copyLink() {
